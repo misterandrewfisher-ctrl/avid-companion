@@ -1,6 +1,15 @@
 import { supabase } from "./auth";
 
-const API = ((import.meta.env.VITE_AVID_API_BASE as string | undefined) ?? "").replace(/\/$/, "");
+const DEFAULT_API_BASE = "https://id-preview--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app";
+const API = (
+  (import.meta.env.VITE_AVID_API_BASE as string | undefined) ||
+  (import.meta.env.VITE_AVID_API_URL as string | undefined) ||
+  DEFAULT_API_BASE
+).replace(/\/$/, "");
+
+export function getApiBase() {
+  return API;
+}
 
 async function authed<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession();

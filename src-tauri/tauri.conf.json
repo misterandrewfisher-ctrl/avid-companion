@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Avid Companion",
-  "version": "0.1.0",
+  "version": "0.2.5",
   "identifier": "com.avidair.companion",
   "build": {
-"beforeBuildCommand": "npm run build",
-"beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -29,7 +29,6 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
-    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,15 +38,5 @@
     "resources": ["../xppython3-plugin/PI_AvidBridge.py"],
     "shortDescription": "Avid Air Cargo Virtual companion",
     "longDescription": "Bridges the Avid VA website, OnAir, SayIntentions, SimBrief and X-Plane 12."
-  },
-  "plugins": {
-    "updater": {
-      "active": true,
-      "endpoints": [
-        "https://github.com/misterandrewfisher-ctrl/avid-companion/releases/latest/download/latest.json"
-      ],
-      "dialog": false,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxOUMzMzIyNDFBODlDNzIKUldSeW5LaEJJak9jNGJPSklCb01XTGdEWFo1Z2FaeGtQd3g3VlFaYVM4UlNBTWxwdFlSVmZDdzcK"
-    }
   }
 }

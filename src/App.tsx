@@ -1,9 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { loadSession, signIn, signOut } from "./lib/auth";
-import { getMyDispatch, type DispatchPayload } from "./lib/avid-api";
-import { checkForUpdates, type UpdaterStatus } from "./lib/updater";
+import { getAuthConfigStatus, loadSession, signIn, signOut } from "./lib/auth";
+import { getApiBase, getMyDispatch, type DispatchPayload } from "./lib/avid-api";
 
 type BridgeState = { connected: boolean; xplane_running?: boolean };
 
@@ -13,7 +12,7 @@ export function App() {
   const [bridge, setBridge] = useState<BridgeState>({ connected: false });
   const [dispatch, setDispatch] = useState<DispatchPayload | null>(null);
   const [status, setStatus] = useState("Initializing…");
-  const [updater, setUpdater] = useState<UpdaterStatus>({ state: "idle" });
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -24,16 +23,30 @@ export function App() {
   }, []);
 
   async function bootstrap() {
-    setUser(await loadSession());
-    setXpRoot(await invoke<string | null>("locate_xplane"));
-    setBridge(await invoke<BridgeState>("bridge_status"));
+    try {
+      setUser(await loadSession());
+    } catch (err) {
+      setError(`Sign-in session could not be loaded: ${formatError(err)}`);
+    }
+
+    try {
+      setXpRoot(await invoke<string | null>("locate_xplane"));
+    } catch (err) {
+      setXpRoot(null);
+      setStatus(`Ready. X-Plane auto-detect failed: ${formatError(err)}`);
+    }
+
+    try {
+      setBridge(await invoke<BridgeState>("bridge_status"));
+    } catch {
+      setBridge({ connected: false });
+    }
+
     const un1 = await listen<boolean>("bridge:connected", (e) =>
       setBridge((current) => ({ ...current, connected: e.payload })),
     );
     const un2 = await listen("bridge:message", (e) => console.log("[bridge]", e.payload));
-    // Check for updates as soon as the app is up.
-    void checkForUpdates(setUpdater);
-    setStatus("Ready.");
+    setStatus((current) => (current.startsWith("Initializing") ? "Ready." : current));
     return () => {
       un1();
       un2();
@@ -44,20 +57,31 @@ export function App() {
     const email = prompt("Avid email");
     const password = prompt("Password");
     if (!email || !password) return;
-    const session = await signIn(email, password);
-    setUser(session);
-    // Re-check after sign-in so a pilot who left the app open picks up
-    // releases without restarting.
-    if (session) void checkForUpdates(setUpdater);
+    setError(null);
+    setStatus("Signing in…");
+    try {
+      const nextUser = await signIn(email, password);
+      setUser(nextUser);
+      setStatus(`Signed in as ${nextUser.email ?? email}.`);
+    } catch (err) {
+      setError(`Sign-in failed: ${formatError(err)}`);
+      setStatus("Sign-in failed.");
+    }
   }
 
   async function refreshDispatch() {
     setStatus("Fetching dispatch…");
-    const d = await getMyDispatch();
-    setDispatch(d);
-    setStatus(
-      d ? `Dispatch: ${d.tail} · ${d.departure} → ${d.destination}` : "No active dispatch.",
-    );
+    setError(null);
+    try {
+      const d = await getMyDispatch();
+      setDispatch(d);
+      setStatus(
+        d ? `Dispatch: ${d.tail} · ${d.departure} → ${d.destination}` : "No active dispatch.",
+      );
+    } catch (err) {
+      setError(`Dispatch refresh failed: ${formatError(err)}`);
+      setStatus("Dispatch refresh failed.");
+    }
   }
 
   async function flyIt() {
@@ -66,20 +90,32 @@ export function App() {
     const sit = dispatch.sit_url
       ? await invoke<string>("load_situation", { sitUrl: dispatch.sit_url, tail: dispatch.tail })
       : null;
-    setStatus("Launching X-Plane 12…");
-    await invoke("launch_xplane", { xpRoot, sitPath: sit });
-    setStatus("X-Plane launching. Bridge will connect when the sim is up.");
+    try {
+      setStatus("Launching X-Plane 12…");
+      await invoke("launch_xplane", { xpRoot, sitPath: sit });
+      setStatus("X-Plane launching. Bridge will connect when the sim is up.");
+    } catch (err) {
+      setError(`X-Plane launch failed: ${formatError(err)}`);
+      setStatus("Launch failed.");
+    }
   }
 
   async function installPlugin() {
     if (!xpRoot) return;
-    await invoke("install_bridge_plugin", { xpRoot });
-    setStatus("Bridge plugin installed. Restart X-Plane to activate.");
+    setError(null);
+    try {
+      await invoke("install_bridge_plugin", { xpRoot });
+      setStatus("Bridge plugin installed. Restart X-Plane to activate.");
+    } catch (err) {
+      setError(`Bridge plugin install failed: ${formatError(err)}`);
+      setStatus("Plugin install failed.");
+    }
   }
+
+  const authConfig = getAuthConfigStatus();
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <UpdateBanner status={updater} onCheck={() => checkForUpdates(setUpdater, { force: true })} />
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Avid Companion</h1>
         <div className="text-sm opacity-70">
@@ -87,6 +123,13 @@ export function App() {
           {user && <button className="ml-3 underline" onClick={async () => { await signOut(); setUser(null); }}>Sign out</button>}
         </div>
       </header>
+
+      {error && (
+        <section className="rounded-lg border border-red-500/40 bg-red-950/20 p-4 text-sm text-red-100">
+          <div className="font-semibold text-red-200">Something needs attention</div>
+          <div className="mt-1 whitespace-pre-wrap">{error}</div>
+        </section>
+      )}
 
       <section className="grid grid-cols-2 gap-4">
         <Card title="X-Plane 12">
@@ -122,6 +165,9 @@ export function App() {
       </section>
 
       <footer className="text-xs opacity-50">{status}</footer>
+      <footer className="text-[11px] opacity-40">
+        API: {getApiBase()} · Auth: {authConfig.urlSource}, {authConfig.keySource}
+      </footer>
 
       <style>{`
         .btn { padding: 6px 12px; background: rgba(255,255,255,.08); border-radius: 6px; }
@@ -134,43 +180,21 @@ export function App() {
   );
 }
 
+function formatError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-lg bg-white/5 p-4 space-y-2">
       <div className="text-sm uppercase tracking-wider opacity-60">{title}</div>
       {children}
-    </div>
-  );
-}
-
-function UpdateBanner({
-  status,
-  onCheck,
-}: {
-  status: UpdaterStatus;
-  onCheck: () => void;
-}) {
-  if (status.state === "idle" || status.state === "up-to-date") return null;
-
-  const bg =
-    status.state === "error"
-      ? "bg-red-500/15 border-red-500/40 text-red-100"
-      : "bg-sky-500/15 border-sky-500/40 text-sky-100";
-
-  return (
-    <div className={`rounded-md border px-4 py-3 text-sm ${bg} flex items-center justify-between gap-3`}>
-      <div>
-        {status.state === "checking" && "Checking for updates…"}
-        {status.state === "available" && `Update v${status.version} available — downloading…`}
-        {status.state === "downloading" && (
-          <>Downloading v{status.version} — {Math.round(status.percent)}%</>
-        )}
-        {status.state === "installing" && `Installing v${status.version}. The app will restart…`}
-        {status.state === "error" && `Update check failed: ${status.message}`}
-      </div>
-      {status.state === "error" && (
-        <button className="underline" onClick={onCheck}>Retry</button>
-      )}
     </div>
   );
 }

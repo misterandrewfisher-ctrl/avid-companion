@@ -10,8 +10,6 @@
     "store:default",
     "fs:default",
     "dialog:default",
-    "websocket:default",
-    "updater:default",
-    "process:default"
+    "websocket:default"
   ]
 }
