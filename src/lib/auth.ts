@@ -69,3 +69,12 @@ export async function loadSession() {
   }
   return (await supabase.auth.getUser()).data.user;
 }
+
+export async function setSessionFromTokens(access_token: string, refresh_token: string) {
+  const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
+  if (error) throw error;
+  const st = await s();
+  await st.set("session", data.session);
+  await st.save();
+  return data.user;
+}
