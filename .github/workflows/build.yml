@@ -2,45 +2,76 @@ name: Build Avid Companion (Windows)
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
+    tags: ["v*"]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Find app folder
+        id: appdir
+        run: |
+          if [ -f "package.json" ] && [ -f "src-tauri/tauri.conf.json" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+          elif [ -f "avid-companion/package.json" ] && [ -f "avid-companion/src-tauri/tauri.conf.json" ]; then
+            echo "dir=avid-companion" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not find package.json + src-tauri/tauri.conf.json"
+            ls -la
+            exit 1
+          fi
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          targets: x86_64-pc-windows-msvc
+          workspaces: ${{ steps.appdir.outputs.dir }}/src-tauri -> target
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Install frontend dependencies
+        working-directory: ${{ steps.appdir.outputs.dir }}
         run: bun install
 
-      - name: Build frontend
+      - name: Write app environment
+        working-directory: ${{ steps.appdir.outputs.dir }}
+        run: |
+          cat > .env <<ENVEOF
+          VITE_AVID_API_BASE=${{ secrets.VITE_AVID_API_BASE || 'https://project--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app' }}
+          VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL || 'https://burcdoowolryklggsgkj.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_wunQ43nqsnYde5DGvPrUcQ_pt5UbBkZ' }}
+          ENVEOF
+
+      - name: Verify frontend build
+        working-directory: ${{ steps.appdir.outputs.dir }}
         run: bun run build
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
-
       - name: Build Tauri app
-        run: cargo tauri build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ${{ steps.appdir.outputs.dir }}
 
-      - name: Upload installer
+      - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
           name: avid-companion-windows
-          path: src-tauri/target/release/bundle/
+          path: |
+            ${{ steps.appdir.outputs.dir }}/src-tauri/target/release/bundle/msi/*.msi
+            ${{ steps.appdir.outputs.dir }}/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
