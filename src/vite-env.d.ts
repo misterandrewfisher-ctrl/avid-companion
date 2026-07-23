@@ -11,3 +11,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+declare module "@tauri-apps/plugin-updater";
+declare module "@tauri-apps/plugin-process";

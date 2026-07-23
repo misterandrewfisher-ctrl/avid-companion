@@ -21,13 +21,15 @@ function FatalScreen({ title, detail }: { title: string; detail?: string }) {
   );
 }
 
+type BoundaryState = { error: Error | null };
+
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null }
+  BoundaryState
 > {
-  state = { error: null };
+  state: BoundaryState = { error: null };
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): BoundaryState {
     return { error };
   }
 
@@ -36,8 +38,9 @@ class RootErrorBoundary extends React.Component<
   }
 
   render() {
-    if (this.state.error) {
-      return <FatalScreen title="The app hit a render error" detail={this.state.error.stack ?? this.state.error.message} />;
+    const { error } = this.state;
+    if (error) {
+      return <FatalScreen title="The app hit a render error" detail={error.stack ?? error.message} />;
     }
     return this.props.children;
   }
