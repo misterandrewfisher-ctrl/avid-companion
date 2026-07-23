@@ -1,112 +1,69 @@
-name: Build Avid Companion
+name: Build Avid Companion Windows
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (e.g. 0.2.1). Leave blank to use tauri.conf.json."
-        required: false
-        default: ""
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - uses: oven-sh/setup-bun@v2
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        run: bun install
 
-      - name: Resolve version
-        id: ver
-        shell: pwsh
+      - name: Create .env
+        shell: bash
         run: |
-          $inp = "${{ github.event.inputs.version }}"
-          if ($inp -and $inp.Trim() -ne "") {
-            $v = $inp.Trim()
-          } elseif ("${{ github.ref_type }}" -eq "tag") {
-            $v = "${{ github.ref_name }}".TrimStart("v")
-          } else {
-            $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-            $v = $conf.version
-          }
-          Write-Host "Using version $v"
-          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          # Sync package.json + tauri.conf.json + Cargo.toml to that version
-          (Get-Content src-tauri/tauri.conf.json -Raw) -replace '("version"\s*:\s*")[^"]+(")', "`${1}$v`${2}" | Set-Content src-tauri/tauri.conf.json
-          (Get-Content package.json -Raw)             -replace '("version"\s*:\s*")[^"]+(")', "`${1}$v`${2}" | Set-Content package.json
-          (Get-Content src-tauri/Cargo.toml -Raw)     -replace '(?m)^version\s*=\s*".+?"$', "version = ""$v""" | Set-Content src-tauri/Cargo.toml
-
-            - name: Create .env
-        run: |
-          echo "VITE_API_BASE=https://project--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app" >> .env
+          echo "VITE_AVID_API_BASE=${{ secrets.VITE_AVID_API_BASE }}" >> .env
           echo "VITE_COMPANION_SECRET=${{ secrets.VITE_COMPANION_SECRET }}" >> .env
           echo "VITE_SUPABASE_URL=https://burcdoowolryklggsgkj.supabase.co" >> .env
           echo "VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_wunQ43nqsnYde5DGvPrUcQ_pt5UbBkZ" >> .env
-        shell: bash
 
-      - name: Install JS deps
-        run: bun install
+      - name: Sync version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tc = Get-Content src-tauri/tauri.conf.json -Raw
+          $tc = $tc -replace '"version": "\d+\.\d+\.\d+"', "`"version`": `"$version`""
+          $tc | Set-Content src-tauri/tauri.conf.json
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          $cargo = $cargo -replace '^version = "\d+\.\d+\.\d+"', "version = `"$version`""
+          $cargo | Set-Content src-tauri/Cargo.toml
 
-      - name: Build web frontend
+      - name: Build frontend
         run: bun run build
 
-      - name: Build Tauri (signed)
+      - name: Build Tauri
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bunx @tauri-apps/cli@2 build
+        run: tauri build
 
-      - name: Upload installer artifact
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: avid-companion-${{ steps.ver.outputs.version }}
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.sig
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/msi/*.sig
-
-      - name: Build latest.json (updater manifest)
-        id: manifest
-        shell: pwsh
-        run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          $sigFile = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe.sig -ErrorAction SilentlyContinue | Select-Object -First 1
-          $exeFile = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe     -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $sigFile -or -not $exeFile) { throw "Signed NSIS bundle not found. Ensure TAURI_SIGNING_PRIVATE_KEY is set." }
-          $sig = Get-Content $sigFile.FullName -Raw
-          $url = "https://github.com/${{ github.repository }}/releases/download/v$v/$($exeFile.Name)"
-          $json = @{
-            version = "$v"
-            notes   = "Avid Companion $v"
-            pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-            platforms = @{
-              "windows-x86_64" = @{ signature = $sig; url = $url }
-            }
-          } | ConvertTo-Json -Depth 6
-          Set-Content -Path latest.json -Value $json -Encoding utf8
-          Copy-Item $exeFile.FullName "avid-companion_${v}_x64-setup.exe"
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          name: Avid Companion v${{ steps.ver.outputs.version }}
-          files: |
-            avid-companion_${{ steps.ver.outputs.version }}_x64-setup.exe
-            src-tauri/target/release/bundle/nsis/*.exe.sig
-            latest.json
+          name: windows-installer
+          path: src-tauri/target/release/bundle/msi/*.msi
