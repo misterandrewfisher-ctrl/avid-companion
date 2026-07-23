@@ -44,7 +44,7 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/REPLACE_ME_OWNER/avid-companion/releases/latest/download/latest.json"
+        "https://github.com/misterandrewfisher-ctrl/avid-companion/releases/latest/download/latest.json"
       ],
       "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxOUMzMzIyNDFBODlDNzIKUldSeW5LaEJJak9jNGJPSklCb01XTGdEWFo1Z2FaeGtQd3g3VlFaYVM4UlNBTWxwdFlSVmZDdzcK"
