@@ -7,7 +7,7 @@
 // (systems, battery off, parking brake, chocks, engines off) is inherited
 // from the reference verbatim.
 
-import { readBinaryFile, writeBinaryFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { readFile as readBinaryFile, writeFile as writeBinaryFile } from "@tauri-apps/plugin-fs";
 import { resolveResource } from "@tauri-apps/api/path";
 
 export type ParkingStand = {
