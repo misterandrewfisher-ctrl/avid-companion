@@ -3,7 +3,7 @@
 //   1) sit_source.kind === "persisted" → download signed URL as-is.
 //   2) sit_source.kind === "synthesized" → compose from bundled reference.
 
-import { writeBinaryFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { writeFile as writeBinaryFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { tempDir, join } from "@tauri-apps/api/path";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { composeSit, writeSitToTemp, type ParkingStand, type SitDescriptor } from "./sit-compose";
