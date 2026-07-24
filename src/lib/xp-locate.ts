@@ -1,13 +1,11 @@
 // Locate the X-Plane 12 install and resolve the required ACF + preferred
 // livery. Livery preference order:
-//   1) A livery folder whose name contains the aircraft tail (case-insensitive)
-//      — this matches your convention of putting the tail in Avid livery names.
-//   2) The explicit `xplane_livery_folder` from aircraft_meta, if it exists.
-//   3) Any livery under the ACF's "liveries/" directory.
-//   4) Default (blank) livery.
+//   1) A livery folder whose name contains the aircraft tail.
+//   2) The explicit xplane_livery_folder from aircraft_meta.
+//   3) Any livery under the ACF's liveries directory.
+//   4) Default livery.
 
 import { exists, readDir } from "@tauri-apps/plugin-fs";
-import { join, dirname } from "@tauri-apps/api/path";
 import { Store } from "@tauri-apps/plugin-store";
 
 const XP_ROOT_KEY = "xplane_root";
@@ -25,70 +23,105 @@ export type AcfResolution = {
   livery_source: "tail_match" | "preferred" | "any" | "default";
 };
 
+function normalizeWinPath(path: string): string {
+  return path.replace(/\//g, "\\").replace(/\\+/g, "\\");
+}
+
+function isAbsoluteWinPath(path: string): boolean {
+  return /^[a-zA-Z]:\\/.test(normalizeWinPath(path)) || normalizeWinPath(path).startsWith("\\\\");
+}
+
+function joinWin(...parts: string[]): string {
+  return normalizeWinPath(parts.filter(Boolean).join("\\"));
+}
+
+function dirnameWin(path: string): string {
+  const normalized = normalizeWinPath(path);
+  const idx = normalized.lastIndexOf("\\");
+  return idx > 0 ? normalized.slice(0, idx) : normalized;
+}
+
+function basenameWin(path: string): string {
+  const normalized = normalizeWinPath(path);
+  const idx = normalized.lastIndexOf("\\");
+  return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+}
+
 export async function getXpRoot(): Promise<string | null> {
   const store = await Store.load("settings.json");
   const saved = (await store.get<string>(XP_ROOT_KEY)) ?? null;
   if (saved && (await exists(saved))) return saved;
-  for (const c of CANDIDATES) {
-    if (await exists(c)) {
-      await store.set(XP_ROOT_KEY, c);
+
+  for (const candidate of CANDIDATES) {
+    if (await exists(candidate)) {
+      await store.set(XP_ROOT_KEY, candidate);
       await store.save();
-      return c;
+      return candidate;
     }
   }
+
   return null;
 }
 
 export async function setXpRoot(path: string): Promise<void> {
   const store = await Store.load("settings.json");
-  await store.set(XP_ROOT_KEY, path);
+  await store.set(XP_ROOT_KEY, normalizeWinPath(path));
   await store.save();
 }
 
 export async function resolveAcfAndLivery(
   xpRoot: string,
-  acfRelativePath: string,
+  acfPath: string,
   preferredLivery: string | null,
   tail: string,
 ): Promise<AcfResolution> {
-  const acfAbs = await join(xpRoot, acfRelativePath.replace(/\//g, "\\"));
+  const acfAbs = isAbsoluteWinPath(acfPath) ? normalizeWinPath(acfPath) : joinWin(xpRoot, acfPath);
+
   if (!(await exists(acfAbs))) {
     throw new Error(
-      `Aircraft file not found: ${acfAbs}\n\nInstall the required airframe or update the ACF path in Admin → Fleet.`,
+      `Aircraft file not found: ${acfAbs}\n\nInstall the required airframe or update the ACF path in Admin -> Fleet.`,
     );
   }
-  const acfDir = await dirname(acfAbs);
-  const liveriesDir = await join(acfDir, "liveries");
+
+  const acfDir = dirnameWin(acfAbs);
+  const liveriesDir = joinWin(acfDir, "liveries");
 
   if (!(await exists(liveriesDir))) {
     return { acf_absolute_path: acfAbs, livery_absolute_path: null, livery_source: "default" };
   }
 
   const entries = await readDir(liveriesDir);
-  const dirs = entries.filter((e) => e.isDirectory).map((e) => e.name);
+  const dirs = entries.filter((entry) => entry.isDirectory).map((entry) => entry.name);
   const tailLc = tail.toLowerCase();
 
-  const tailMatch = dirs.find((d) => d.toLowerCase().includes(tailLc));
+  const tailMatch = dirs.find((dir) => dir.toLowerCase().includes(tailLc));
   if (tailMatch) {
     return {
       acf_absolute_path: acfAbs,
-      livery_absolute_path: await join(liveriesDir, tailMatch),
+      livery_absolute_path: joinWin(liveriesDir, tailMatch),
       livery_source: "tail_match",
     };
   }
-  if (preferredLivery && dirs.includes(preferredLivery)) {
-    return {
-      acf_absolute_path: acfAbs,
-      livery_absolute_path: await join(liveriesDir, preferredLivery),
-      livery_source: "preferred",
-    };
+
+  if (preferredLivery) {
+    const preferredName = basenameWin(preferredLivery);
+    const preferredMatch = dirs.find((dir) => dir.toLowerCase() === preferredName.toLowerCase());
+    if (preferredMatch) {
+      return {
+        acf_absolute_path: acfAbs,
+        livery_absolute_path: joinWin(liveriesDir, preferredMatch),
+        livery_source: "preferred",
+      };
+    }
   }
+
   if (dirs.length > 0) {
     return {
       acf_absolute_path: acfAbs,
-      livery_absolute_path: await join(liveriesDir, dirs[0]),
+      livery_absolute_path: joinWin(liveriesDir, dirs[0]),
       livery_source: "any",
     };
   }
+
   return { acf_absolute_path: acfAbs, livery_absolute_path: null, livery_source: "default" };
 }

@@ -1,14 +1,9 @@
 // Patch the bundled XP 12.4.3 cold-and-dark reference .sit with a resolved
 // parking stand's lat/lon/heading. The reference is captured from XP 12.4.3
-// so it validates on load (our old hand-written stub was rejected).
-//
-// XP .sit files are line-based key/value records. We only rewrite the small
-// set of fields that control position and startup state; everything else
-// (systems, battery off, parking brake, chocks, engines off) is inherited
-// from the reference verbatim.
+// so it validates on load.
 
-import { readFile as readBinaryFile, writeFile as writeBinaryFile } from "@tauri-apps/plugin-fs";
-import { resolveResource } from "@tauri-apps/api/path";
+import { mkdir, readFile, writeFile } from "@tauri-apps/plugin-fs";
+import { appDataDir, join, resolveResource } from "@tauri-apps/api/path";
 
 export type ParkingStand = {
   id: string;
@@ -26,7 +21,6 @@ export type SitDescriptor = {
   cold_and_dark: boolean;
 };
 
-// Rewrite one "key value" line if key matches (whitespace-tolerant).
 function setField(lines: string[], key: string, value: string): void {
   const re = new RegExp(`^(\\s*${key}\\s+).*$`);
   for (let i = 0; i < lines.length; i++) {
@@ -35,8 +29,12 @@ function setField(lines: string[], key: string, value: string): void {
       return;
     }
   }
-  // If the key isn't present in the reference we skip silently — XP
-  // handles absent optional fields.
+}
+
+async function avidWorkDir(): Promise<string> {
+  const dir = await join(await appDataDir(), "avid-launch");
+  await mkdir(dir, { recursive: true });
+  return dir;
 }
 
 export async function composeSit(
@@ -45,7 +43,7 @@ export async function composeSit(
   airportLatLon: { lat: number; lon: number } | null,
 ): Promise<Uint8Array> {
   const refPath = await resolveResource("resources/xp12_cold_dark.sit");
-  const bytes = await readBinaryFile(refPath);
+  const bytes = await readFile(refPath);
   const text = new TextDecoder("utf-8").decode(bytes);
   const lines = text.split(/\r?\n/);
 
@@ -53,19 +51,18 @@ export async function composeSit(
   const lon = stand?.lon ?? airportLatLon?.lon ?? 0;
   const hdg = stand?.heading_true ?? 0;
 
-  // These are the fields XP 12 .sit uses for start position / attitude.
   setField(lines, "p_lat_lon_ele/0", lat.toFixed(9));
   setField(lines, "p_lat_lon_ele/1", lon.toFixed(9));
   setField(lines, "p_psi_the_phi/0", hdg.toFixed(4));
   setField(lines, "p_psi_the_phi/1", "0.0000");
   setField(lines, "p_psi_the_phi/2", "0.0000");
-  setField(lines, "start_type", "5"); // 5 = ramp start / cold & dark
+  setField(lines, "start_type", "5");
 
   return new TextEncoder().encode(lines.join("\n"));
 }
 
 export async function writeSitToTemp(bytes: Uint8Array, filename = "avid_launch.sit"): Promise<string> {
-  await writeBinaryFile(filename, bytes, { baseDir: BaseDirectory.Temp });
-  const { tempDir, join } = await import("@tauri-apps/api/path");
-  return await join(await tempDir(), filename);
+  const outPath = await join(await avidWorkDir(), filename);
+  await writeFile(outPath, bytes);
+  return outPath;
 }

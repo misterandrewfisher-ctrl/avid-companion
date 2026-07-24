@@ -13,20 +13,20 @@ export type BridgeState =
 
 export async function pingBridge(timeoutMs = 800): Promise<boolean> {
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const res = await tauriFetch(BRIDGE_URL, { method: "GET", signal: ctl.signal });
     return res.ok;
   } catch {
     return false;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
 
-export function watchBridge(onChange: (s: BridgeState) => void): () => void {
+export function watchBridge(onChange: (state: BridgeState) => void): () => void {
   let state: BridgeState = { kind: "not_detected" };
-  let firstSeen = Date.now();
+  const firstSeen = Date.now();
   let stopped = false;
 
   const tick = async () => {
@@ -42,6 +42,7 @@ export function watchBridge(onChange: (s: BridgeState) => void): () => void {
     onChange(state);
     setTimeout(tick, 2000);
   };
+
   tick();
   return () => {
     stopped = true;

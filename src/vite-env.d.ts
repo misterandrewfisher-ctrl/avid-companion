@@ -3,15 +3,18 @@
 declare module "@tauri-apps/api/core" {
   export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T>;
 }
+
 declare module "@tauri-apps/api/path" {
   export function appDataDir(): Promise<string>;
   export function join(...paths: string[]): Promise<string>;
   export function resolveResource(path: string): Promise<string>;
 }
+
 declare module "@tauri-apps/api/event" {
-  export function listen<T = unknown>(event: string, handler: (e: { payload: T }) => void): Promise<() => void>;
+  export function listen<T = unknown>(event: string, handler: (event: { payload: T }) => void): Promise<() => void>;
   export function emit(event: string, payload?: unknown): Promise<void>;
 }
+
 declare module "@tauri-apps/plugin-shell" {
   export class Command {
     static create(program: string, args?: string[]): Command;
@@ -20,21 +23,34 @@ declare module "@tauri-apps/plugin-shell" {
   }
   export function open(path: string): Promise<void>;
 }
+
 declare module "@tauri-apps/plugin-updater" {
   export function check(): Promise<null | {
     available: boolean;
     version: string;
-    downloadAndInstall(cb?: (e: unknown) => void): Promise<void>;
+    downloadAndInstall(callback?: (event: unknown) => void): Promise<void>;
   }>;
 }
+
 declare module "@tauri-apps/plugin-process" {
   export function relaunch(): Promise<void>;
   export function exit(code?: number): Promise<void>;
 }
+
 declare module "@tauri-apps/plugin-dialog" {
   export function open(options?: Record<string, unknown>): Promise<string | string[] | null>;
-  export function message(msg: string, options?: Record<string, unknown>): Promise<void>;
+  export function message(message: string, options?: Record<string, unknown>): Promise<void>;
 }
+
+declare module "@tauri-apps/plugin-store" {
+  export class Store {
+    static load(path: string): Promise<Store>;
+    get<T = unknown>(key: string): Promise<T | null>;
+    set(key: string, value: unknown): Promise<void>;
+    save(): Promise<void>;
+  }
+}
+
 declare module "@tauri-apps/plugin-fs" {
   export function readFile(path: string): Promise<Uint8Array>;
   export function writeFile(path: string, data: Uint8Array): Promise<void>;
@@ -42,10 +58,9 @@ declare module "@tauri-apps/plugin-fs" {
   export function writeTextFile(path: string, contents: string): Promise<void>;
   export function exists(path: string): Promise<boolean>;
   export function mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-  export function readDir(
-    path: string
-  ): Promise<Array<{ name: string; isDirectory: boolean; isFile: boolean }>>;
+  export function readDir(path: string): Promise<Array<{ name: string; isDirectory: boolean; isFile: boolean }>>;
 }
+
 declare module "@tauri-apps/plugin-http" {
   export const fetch: typeof globalThis.fetch;
 }
