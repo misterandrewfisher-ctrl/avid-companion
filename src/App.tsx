@@ -9,6 +9,7 @@ import {
 } from "./lib/auth";
 import {
   exchangeDeviceCode,
+  getApiCandidates,
   getFleet,
   launchFlight,
   requestDeviceCode,
@@ -193,6 +194,12 @@ export function App() {
               <p className="text-sm text-white/70">Enter this code on the website:</p>
               <p className="mt-3 text-3xl font-mono tracking-[0.25em]">{pairing.user_code}</p>
               <p className="mt-3 break-all text-xs text-white/50">{pairing.verify_url}</p>
+              <button
+                className="mt-3 rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
+                onClick={() => window.open(pairing.verify_url, "_blank")}
+              >
+                Open approval page
+              </button>
               <p className="mt-4 text-sm text-white/80">Waiting for approval…</p>
             </div>
           ) : (
@@ -212,7 +219,8 @@ export function App() {
           )}
 
           <p className="mt-8 text-[10px] text-white/40">
-            {cfg.backendUrl} · key from {cfg.keySource}
+            API: {getApiCandidates().join(" → ")}<br />
+            Auth: {cfg.backendUrl} · key from {cfg.keySource}
           </p>
         </div>
       </div>
