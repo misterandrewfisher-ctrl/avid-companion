@@ -54,7 +54,7 @@ export async function signIn(email: string, password: string) {
 export async function signOut() {
   await supabase.auth.signOut();
   const st = await s();
-  await st.delete("session");
+  await (st as any).delete("session");
   await st.save();
 }
 
