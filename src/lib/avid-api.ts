@@ -1,9 +1,13 @@
 import { supabase } from "./auth";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
-const DEFAULT_API_BASE = "https://project--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app";
-const FALLBACK_API_BASES = [
+const DEFAULT_API_BASE = "https://bloom-create-deploy.lovable.app";
+// Only the published production origin serves authed `/api/companion/*` routes.
+// The `project--*.lovable.app` mirrors are behind Lovable's site-auth wall and
+// always return 403 on non-public paths, so we only use them for public routes.
+const PUBLIC_FALLBACK_BASES = [
   DEFAULT_API_BASE,
-  "https://bloom-create-deploy.lovable.app",
+  "https://project--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app",
   "https://project--0b678040-0945-40d8-b885-963e81cc0a50-dev.lovable.app",
 ] as const;
 
@@ -21,8 +25,9 @@ const ENV_API = cleanBase(
 );
 const API = ENV_API || DEFAULT_API_BASE;
 
-function apiCandidates() {
-  return Array.from(new Set([API, ...FALLBACK_API_BASES].filter(Boolean)));
+function apiCandidates(isPublic: boolean) {
+  if (!isPublic) return [API];
+  return Array.from(new Set([API, ...PUBLIC_FALLBACK_BASES].filter(Boolean)));
 }
 
 export function getApiBase() {
@@ -30,8 +35,9 @@ export function getApiBase() {
 }
 
 export function getApiCandidates() {
-  return apiCandidates();
+  return apiCandidates(true);
 }
+
 
 async function req<T>(path: string, init: RequestInit = {}, withAuth = false): Promise<T> {
   const headers: Record<string, string> = {
@@ -40,16 +46,21 @@ async function req<T>(path: string, init: RequestInit = {}, withAuth = false): P
     ...((init.headers as Record<string, string>) || {}),
   };
   if (withAuth) {
-    const {
+    // Nudge the client to refresh if the access token is close to expiry.
+    let {
       data: { session },
     } = await supabase.auth.getSession();
+    if (session?.expires_at && session.expires_at * 1000 < Date.now() + 60_000 && session.refresh_token) {
+      const { data } = await supabase.auth.refreshSession({ refresh_token: session.refresh_token });
+      session = data.session ?? session;
+    }
     if (session) headers.Authorization = `Bearer ${session.access_token}`;
   }
 
   const errors: string[] = [];
-  for (const base of apiCandidates()) {
+  for (const base of apiCandidates(!withAuth)) {
     try {
-      const r = await fetch(`${base}${path}`, { ...init, headers, cache: "no-store" });
+      const r = await tauriFetch(`${base}${path}`, { ...init, headers });
       const text = await r.text();
       if (!r.ok) {
         errors.push(`${base}: ${r.status} ${text.slice(0, 240)}`);
@@ -66,6 +77,7 @@ async function req<T>(path: string, init: RequestInit = {}, withAuth = false): P
   }
   throw new Error(errors.join("\n"));
 }
+
 
 function formatNetworkError(err: unknown) {
   if (err instanceof Error) return err.message;
@@ -102,13 +114,12 @@ export interface DeviceCodeExchange {
 
 export async function exchangeDeviceCode(device_code: string): Promise<DeviceCodeExchange> {
   const errors: string[] = [];
-  for (const base of apiCandidates()) {
+  for (const base of apiCandidates(true)) {
     try {
-      const r = await fetch(`${base}/api/public/companion/device-code/exchange`, {
+      const r = await tauriFetch(`${base}/api/public/companion/device-code/exchange`, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ device_code }),
-        cache: "no-store",
       });
       const body = (await r.json().catch(() => ({}))) as DeviceCodeExchange;
       if (r.status === 202) return { status: "pending" };

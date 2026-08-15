@@ -1,65 +1,77 @@
-# Avid Companion — Auto-updates (v0.3)
+# Avid Companion — Auto-updates
 
-The app now checks GitHub Releases for a new version:
-- Once at startup
-- Once again after sign-in
-- A retry button appears if a check fails
+The companion app now checks GitHub Releases for a new version on every startup. Updates are downloaded and installed silently, then the app relaunches itself.
 
-Releases are downloaded and installed **only** if they're signed with
-your Tauri updater key. Set that up once, then every `vX.Y.Z` git tag
-becomes an auto-update for existing installs.
+## One-time setup (already done in code)
 
-## One-time setup
+- ✅ The Tauri updater plugin is installed in `companion/src-tauri/Cargo.toml`.
+- ✅ The plugin is registered in Rust (`main.rs`).
+- ✅ `tauri.conf.json` has the updater enabled with the public key already set.
+- ✅ `useUpdater()` runs an update check on startup and shows status in the UI.
+- ✅ The GitHub Actions workflow is configured to sign the update payload and upload the `.nsis.zip`, `.nsis.zip.sig`, and `latest.json` files to the release.
+- ✅ The signing private key and password are stored in Lovable Cloud secrets.
 
-### 1. Generate a signing keypair (on your machine)
-```powershell
-bunx @tauri-apps/cli signer generate -w %USERPROFILE%\.tauri\avid-companion.key
-```
-This prints two things:
-- A **private key** (the `avid-companion.key` file) — keep secret.
-- A **public key** (base64 string) — safe to commit.
+## What you still need to do
 
-### 2. Put the public key in `src-tauri/tauri.conf.json`
-Replace `REPLACE_ME_WITH_TAURI_UPDATER_PUBKEY` under `plugins.updater.pubkey`
-with the base64 string. Also replace `REPLACE_ME_OWNER` in the endpoint URL
-with your GitHub username or org so it reads:
+### 1. Tell the app where your GitHub releases live
 
-```
-https://github.com/<you>/avid-companion/releases/latest/download/latest.json
+In `companion/src-tauri/tauri.conf.json`, replace the placeholder endpoint:
+
+```json
+"endpoints": [
+  "https://github.com/REPLACE_ME_OWNER/REPLACE_ME_REPO/releases/latest/download/latest.json"
+]
 ```
 
-Commit both changes.
+with your actual GitHub org/user and repo name, e.g.:
 
-### 3. Add two GitHub secrets
-Repo → Settings → Secrets and variables → Actions → **New repository secret**:
-- `TAURI_SIGNING_PRIVATE_KEY` — paste the **contents** of the `.key` file.
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you typed when
-  generating the key (leave blank if you skipped one, but still add the secret).
+```json
+"endpoints": [
+  "https://github.com/avidair/avid-companion/releases/latest/download/latest.json"
+]
+```
+
+### 2. Copy the signing secrets from Lovable to GitHub Actions
+
+The Tauri updater needs two GitHub Actions secrets so the build server can sign the update package:
+
+1. Open your project in Lovable and go to **Settings → Secrets** (or wherever your stored secrets are shown).
+2. Copy these two values:
+   - `TAURI_SIGNING_PRIVATE_KEY`
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+3. In your GitHub repo, go to **Settings → Secrets and variables → Actions → New repository secret** and paste both values with the exact same names.
+
+> ⚠️ The private key and password must match the public key in `tauri.conf.json`. If you regenerate a new keypair later, you must replace the public key in the config too.
+
+### 3. Make sure the GitHub workflow is in your repo
+
+The workflow file is already at `.github/workflows/companion-build.yml`. When you push the `companion` folder to GitHub, ensure this file is in the root of the GitHub repo (not inside the `companion` subfolder). It already triggers on `companion-v*` tags.
 
 ## Cutting a release
 
+1. Bump the version in all three files so the new build reports the new version:
+   - `companion/src-tauri/tauri.conf.json`
+   - `companion/src-tauri/Cargo.toml`
+   - `companion/package.json`
+2. Create and push the tag:
+
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag companion-v0.3.2
+git push origin companion-v0.3.2
 ```
 
 The **Build Avid Companion (Windows)** workflow will:
-1. Build the app.
-2. Sign the update artifact with your private key.
-3. Create a GitHub Release named `Avid Companion v0.3.0`.
-4. Upload `latest.json`, the `.nsis.zip` update payload, and the installer.
 
-Existing installs will see the update on the next startup (or the next
-sign-in) and self-install without a reinstall.
+1. Build the app.
+2. Sign the update payload with the private key.
+3. Create a GitHub Release named `companion-v0.3.2`.
+4. Upload the `.msi`, `.exe`, `.nsis.zip`, `.nsis.zip.sig`, and `latest.json` files.
+
+Existing installs will detect the update on the next startup and install it automatically.
 
 ## Troubleshooting
 
-- **"Update check failed"** on a fresh install → confirm the `endpoints`
-  URL is reachable in a browser and that `latest.json` exists in the
-  latest release.
-- **Signature verification error** → the `pubkey` in `tauri.conf.json`
-  doesn't match the `TAURI_SIGNING_PRIVATE_KEY` used by the workflow.
-  Regenerate the pair or replace whichever is out of date.
-- **No update showing after a tag push** → check the Actions run.
-  If it succeeded but no release appeared, verify the workflow has
-  `contents: write` permission (it does in `.github/workflows/build.yml`).
+- **"Update check failed"** on a fresh install → confirm the `endpoints` URL is reachable in a browser and that `latest.json` exists in the latest release.
+- **Signature verification error** → the `pubkey` in `tauri.conf.json` doesn't match the `TAURI_SIGNING_PRIVATE_KEY` used by the workflow. If you regenerate the keypair, replace both the public key and the GitHub secret.
+- **No update showing after a tag push** → check the Actions run. If it succeeded but no release appeared, verify the workflow has `contents: write` permission.
+- **Updates fail on install** → ensure the Windows Defender / SmartScreen is not blocking the unsigned installer. A code-signing certificate (optional) reduces these warnings, but Tauri signature verification is the minimum requirement.

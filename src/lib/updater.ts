@@ -1,21 +1,42 @@
-// Optional auto-updater. Uses dynamic imports so the app still builds
-// even when the Tauri updater/process plugins aren't installed yet.
-export async function checkForUpdates() {
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+
+export type UpdateStatus =
+  | { type: "idle" }
+  | { type: "checking" }
+  | { type: "none" }
+  | { type: "available"; version: string }
+  | { type: "downloading"; version: string }
+  | { type: "installing"; version: string }
+  | { type: "relaunching"; version: string }
+  | { type: "error"; message: string };
+
+export type UpdateListener = (status: UpdateStatus) => void;
+
+const noop: UpdateListener = () => {};
+
+export async function checkForUpdates(onStatus: UpdateListener = noop) {
+  onStatus({ type: "checking" });
   try {
-    const updater = await import(
-      /* @vite-ignore */ "@tauri-apps/plugin-updater"
-    ).catch(() => null as any);
-    const proc = await import(
-      /* @vite-ignore */ "@tauri-apps/plugin-process"
-    ).catch(() => null as any);
-    if (!updater?.check) return;
-    const update = await updater.check();
-    if (update) {
-      console.log(`Update available: ${update.version}`);
-      await update.downloadAndInstall();
-      if (proc?.relaunch) await proc.relaunch();
+    const update = await check();
+    if (!update) {
+      onStatus({ type: "none" });
+      return;
     }
-  } catch (e) {
-    console.error("Update check failed", e);
+
+    onStatus({ type: "available", version: update.version });
+    onStatus({ type: "downloading", version: update.version });
+    await update.downloadAndInstall((event) => {
+      if ((event as { event: string }).event === "Finished") {
+        onStatus({ type: "installing", version: update.version });
+      }
+    });
+
+    onStatus({ type: "relaunching", version: update.version });
+    await relaunch();
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onStatus({ type: "error", message });
   }
 }

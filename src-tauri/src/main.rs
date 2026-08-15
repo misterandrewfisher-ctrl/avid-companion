@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod probe;
 mod sit_manager;
 mod xp_locator;
 mod xp_plugin;
@@ -44,6 +45,14 @@ async fn bridge_status() -> Result<bridge::BridgeStatus, String> {
     bridge::status().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn probe_capabilities(
+    api_url: String,
+    bearer: Option<String>,
+) -> Result<probe::CapabilityReport, String> {
+    probe::run_probe(bearer, api_url).await.map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -51,6 +60,9 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_websocket::init())
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             use tauri::Manager;
             let handle = app.handle().clone();
@@ -64,6 +76,7 @@ fn main() {
             load_situation,
             snapshot_situation,
             bridge_status,
+            probe_capabilities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

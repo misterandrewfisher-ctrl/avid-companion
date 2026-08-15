@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
+  getAccessToken,
   getAuthConfigStatus,
   loadSession,
   setSessionFromTokens,
@@ -9,6 +10,7 @@ import {
 } from "./lib/auth";
 import {
   exchangeDeviceCode,
+  getApiBase,
   getApiCandidates,
   getFleet,
   launchFlight,
@@ -17,15 +19,23 @@ import {
   type FleetAircraft,
   type FlightType,
 } from "./lib/avid-api";
+import { useUpdater } from "./hooks/useUpdater";
+import { CapabilityProbe } from "./components/CapabilityProbe";
 
+
+type Tab = "flight" | "probe";
 type BridgeState = { connected: boolean; xplane_running?: boolean };
 
 export function App() {
+  const [tab, setTab] = useState<Tab>("flight");
   const [user, setUser] = useState<any>(null);
+  const [bearer, setBearer] = useState<string | null>(null);
   const [xpRoot, setXpRoot] = useState<string | null>(null);
   const [bridge, setBridge] = useState<BridgeState>({ connected: false });
   const [status, setStatus] = useState("Initializing…");
   const [error, setError] = useState<string | null>(null);
+  const { status: updateStatus, recheck: recheckUpdates } = useUpdater();
+
 
   // Login (device code)
   const [pairing, setPairing] = useState<DeviceCodeStart | null>(null);
@@ -60,7 +70,10 @@ export function App() {
     try {
       const u = await loadSession();
       setUser(u);
-      if (u) await loadFleet();
+      if (u) {
+        setBearer(await getAccessToken());
+        await loadFleet();
+      }
     } catch (err) {
       setError(`Sign-in session could not be loaded: ${formatError(err)}`);
     }
@@ -119,6 +132,7 @@ export function App() {
         if (res.status === "approved" && res.access_token && res.refresh_token) {
           const u = await setSessionFromTokens(res.access_token, res.refresh_token);
           setUser(u);
+          setBearer(await getAccessToken());
           setPairing(null);
           setStatus(`Signed in as ${u?.email ?? "pilot"}.`);
           await loadFleet();
@@ -136,6 +150,7 @@ export function App() {
   async function handleSignOut() {
     await signOut();
     setUser(null);
+    setBearer(null);
     setFleet([]);
     setTail("");
     setStatus("Signed out.");
@@ -222,10 +237,12 @@ export function App() {
             API: {getApiCandidates().join(" → ")}<br />
             Auth: {cfg.backendUrl} · key from {cfg.keySource}
           </p>
+          <UpdateStatusPill status={updateStatus} onRetry={recheckUpdates} />
         </div>
       </div>
     );
   }
+
 
   return (
     <div className="min-h-screen bg-[#0b0f14] text-[#e6edf3] p-8">
@@ -235,15 +252,42 @@ export function App() {
             <p className="text-xs uppercase tracking-[0.25em] text-white/60">Avid Companion</p>
             <h1 className="mt-1 text-2xl font-semibold">{user.email ?? "Pilot"}</h1>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-white/15 p-0.5">
+              {[
+                ["flight", "Flight"] as const,
+                ["probe", "Probe"] as const,
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  className={
+                    "rounded px-3 py-1.5 text-xs " +
+                    (tab === id
+                      ? "bg-white/10 text-white"
+                      : "text-white/60 hover:text-white")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleSignOut}
+              className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/80 hover:bg-white/5"
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
-        <section className="rounded-lg border border-white/10 bg-white/5 p-5">
+        {tab === "probe" ? (
+          <section className="rounded-lg border border-white/10 bg-white/5 p-5">
+            <CapabilityProbe apiUrl={getApiBase()} bearer={bearer} />
+          </section>
+        ) : (
+          <>
+            <section className="rounded-lg border border-white/10 bg-white/5 p-5">
           <h2 className="text-sm font-semibold text-white/80">1. Select aircraft</h2>
           <select
             value={tail}
@@ -329,8 +373,11 @@ export function App() {
             </span>
           </div>
         </section>
+        </>
+      )}
 
         <p className="text-xs text-white/60">{status}</p>
+        <UpdateStatusPill status={updateStatus} onRetry={recheckUpdates} />
         {error && (
           <pre className="whitespace-pre-wrap rounded-md border border-red-500/40 bg-red-950/20 p-4 text-xs text-red-100">
             {error}
@@ -341,6 +388,7 @@ export function App() {
   );
 }
 
+
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message;
   try {
@@ -349,3 +397,49 @@ function formatError(err: unknown): string {
     return String(err);
   }
 }
+
+function UpdateStatusPill({
+  status,
+  onRetry,
+}: {
+  status: import("./lib/updater").UpdateStatus;
+  onRetry: () => void;
+}) {
+  const labels: Record<string, string> = {
+    idle: "",
+    checking: "Checking for updates…",
+    none: "App is up to date.",
+    available: "Update available",
+    downloading: "Downloading update…",
+    installing: "Installing update…",
+    relaunching: "Restarting app…",
+  };
+
+  if (status.type === "idle" || status.type === "none") {
+    return <p className="text-[10px] text-white/40">{labels[status.type]}</p>;
+  }
+
+  if (status.type === "error") {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="text-[10px] text-red-300">Update check failed: {status.message}</p>
+        <button
+          onClick={onRetry}
+          className="rounded border border-white/15 px-2 py-0.5 text-[10px] text-white/70 hover:bg-white/5"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-[10px] text-emerald-300">
+      {labels[status.type]}
+      {status.type === "available" || status.type === "downloading" || status.type === "installing" || status.type === "relaunching"
+        ? ` (v${(status as any).version})`
+        : ""}
+    </p>
+  );
+}
+

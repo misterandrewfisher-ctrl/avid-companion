@@ -36,6 +36,23 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: true },
 });
 
+// When Supabase auto-refreshes the access token, persist the new pair back to
+// the Tauri store so the next app launch has valid credentials. Without this,
+// the stored refresh_token eventually becomes invalid and every authed request
+// returns 401.
+supabase.auth.onAuthStateChange(async (event, session) => {
+  if (!session) return;
+  if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
+  try {
+    const st = await s();
+    await st.set("session", session);
+    await st.save();
+  } catch (err) {
+    console.warn("[auth] failed to persist refreshed session", err);
+  }
+});
+
+
 let store: Store | null = null;
 async function s() {
   if (!store) store = await Store.load("avid-auth.json");
@@ -68,6 +85,13 @@ export async function loadSession() {
     });
   }
   return (await supabase.auth.getUser()).data.user;
+}
+
+export async function getAccessToken() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
 }
 
 export async function setSessionFromTokens(access_token: string, refresh_token: string) {

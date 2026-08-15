@@ -10,6 +10,20 @@
     "store:default",
     "fs:default",
     "dialog:default",
-    "websocket:default"
+    "websocket:default",
+    "updater:default",
+    "process:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "http://127.0.0.1:47821/*" },
+        { "url": "http://localhost:47821/*" },
+        { "url": "https://bloom-create-deploy.lovable.app/*" },
+        { "url": "https://avidair.ca/*" },
+        { "url": "https://www.avidair.ca/*" },
+        { "url": "https://project--0b678040-0945-40d8-b885-963e81cc0a50.lovable.app/*" },
+        { "url": "https://project--0b678040-0945-40d8-b885-963e81cc0a50-dev.lovable.app/*" }
+      ]
+    }
   ]
 }
