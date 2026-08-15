@@ -41,7 +41,7 @@ pub struct ApiProbe {
 
 pub async fn run_probe(bearer: Option<String>, api_url: String) -> anyhow::Result<CapabilityReport> {
     // X-Plane: reuse the existing locator and bridge status helpers.
-    let xplane_path = crate::xp_locator::find_xplane12_root().ok();
+    let xplane_path: Option<String> = crate::xp_locator::find_xplane12_root().ok().flatten();
     let bridge_reachable = tokio::net::TcpStream::connect("127.0.0.1:49152")
         .await
         .is_ok();
